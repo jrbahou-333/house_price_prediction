@@ -1,0 +1,42 @@
+# Crosby house price model - environment
+# See C:\Users\jrbah\.claude\plans\c-users-jrbah-documents-local-projects-synthetic-wolf.md
+
+# Data wrangling
+pandas>=2.2
+numpy>=1.26
+duckdb>=1.0
+pyarrow>=16.0
+
+# Geo
+geopandas>=0.14
+shapely>=2.0
+pyproj>=3.6
+
+# Matching
+rapidfuzz>=3.9
+
+# Modelling
+scikit-learn>=1.5
+statsmodels>=0.14
+lightgbm>=4.3
+xgboost>=2.0
+optuna>=3.6
+shap>=0.45
+mapie>=0.8
+
+# Viz / notebooks
+# Classic notebook (<7), not `jupyter` meta / jupyterlab: the latter bundles
+# JS assets with paths that exceed Windows MAX_PATH under a nested project
+# dir. Enabling Windows long-path support would fix it too, but that's a
+# system setting change - ask before doing that instead of routing around it.
+matplotlib>=3.8
+seaborn>=0.13
+notebook<7,>=6.5
+ipykernel>=6.29
+nbformat>=5.10
+nbconvert>=7.16
+
+# HTTP
+requests>=2.32
+tqdm>=4.66
+python-dotenv>=1.0

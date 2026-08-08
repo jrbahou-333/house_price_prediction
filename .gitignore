@@ -1,0 +1,21 @@
+# Data — everything downloaded or derived. ~4.5 GB, all reproducible from
+# 00_setup_and_download.ipynb, so it never belongs in the repo.
+data/
+
+# Secrets — the EPC API bearer token lives here.
+.env
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.Python
+
+# Jupyter
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+
+# OS
+.DS_Store
+Thumbs.db
