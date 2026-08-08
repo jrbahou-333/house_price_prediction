@@ -14,19 +14,41 @@ for _d in (DATA_RAW, DATA_INTERIM, DATA_PROCESSED):
     _d.mkdir(parents=True, exist_ok=True)
 
 # --- Local authorities in scope (Part 3 of the plan) ---
-# Sefton is the buying target; the rest give one contiguous North West market
-# with enough transaction volume for gradient boosting.
-LOCAL_AUTHORITIES = [
-    "SEFTON",
-    "LIVERPOOL",
-    "KNOWSLEY",
-    "WIRRAL",
-    "ST HELENS",
-    "WEST LANCASHIRE",
-]
+# Sefton is the buying target; the rest give one contiguous North West
+# market. Measured, not assumed: training on all of Sefton beat training on
+# Crosby alone when both were scored on the same Crosby properties (MdAPE
+# 9.5% vs 10.0%), so wider training helps rather than dilutes - see the
+# scope experiment in notebooks/04_model.ipynb.
+#
+# Keys are the district name as it appears in Price Paid; values are the
+# same authority's RegionName in the UK HPI file. They mostly match but
+# must be kept explicit - applying Sefton's price index to Liverpool sales
+# would inject error rather than remove it.
+LOCAL_AUTHORITIES = {
+    "SEFTON": "Sefton",
+    "LIVERPOOL": "Liverpool",
+    "KNOWSLEY": "Knowsley",
+    "WIRRAL": "Wirral",
+    "ST HELENS": "St Helens",
+    "WEST LANCASHIRE": "West Lancashire",
+}
 
-# Phase 1 thin slice uses Sefton only.
-PHASE1_LA = ["SEFTON"]
+# Slug used for the per-authority EPC download filenames, e.g.
+# data/raw/epc/west_lancashire_certificates.csv
+def la_slug(district: str) -> str:
+    return district.lower().replace(" ", "_")
+
+def epc_path(district: str):
+    return DATA_RAW / "epc" / f"{la_slug(district)}_certificates.csv"
+
+def available_authorities() -> list[str]:
+    """Whichever authorities actually have an EPC file downloaded.
+
+    Lets the pipeline run on whatever is present rather than failing on a
+    missing download - useful while the five extra EPC files are still
+    being fetched manually.
+    """
+    return [d for d in LOCAL_AUTHORITIES if epc_path(d).exists()]
 
 # EPC certificates don't exist before 2008, so there is no point pulling
 # Price Paid data further back than that for the join.
@@ -56,12 +78,16 @@ PPD_COLUMNS = [
 PPD_YEARLY_URL = "https://price-paid-data.publicdata.landregistry.gov.uk/pp-{year}.csv"
 PPD_COMPLETE_URL = "https://price-paid-data.publicdata.landregistry.gov.uk/pp-complete.csv"
 
-# --- EPC: API, not bulk CSV download ---
-# The bulk CSV download is now whole-country only (~8GB) since per-LA
-# download was removed from the service. The API lets us filter server-side
-# by council instead - same GOV.UK One Login requirement for the bearer
-# token, but no multi-GB file. Two-step: search (lightweight, paginated,
-# gives certificate numbers) then fetch full detail per certificate.
+# --- EPC ---
+# Preferred route is the website's "Download files" flow, which does let you
+# filter to a single council before downloading (~120 MB per authority)
+# rather than taking the whole-country file (~7.5 GB zipped). Needs a free
+# GOV.UK One Login.
+#
+# The API below is the fallback: same One Login, a bearer token instead of a
+# file. Its /api/files/domestic/csv endpoint has no council filter, so the
+# only filtered route is search-then-fetch, one call per certificate - a
+# couple of hours per authority even paced under the rate limit.
 EPC_API_BASE = "https://api.get-energy-performance-data.communities.gov.uk"
 EPC_SEARCH_ENDPOINT = f"{EPC_API_BASE}/api/domestic/search"
 EPC_CERTIFICATE_ENDPOINT = f"{EPC_API_BASE}/api/certificate"
