@@ -20,35 +20,28 @@ for _d in (DATA_RAW, DATA_INTERIM, DATA_PROCESSED):
 # 9.5% vs 10.0%), so wider training helps rather than dilutes - see the
 # scope experiment in notebooks/04_model.ipynb.
 #
-# Keys are the district name as it appears in Price Paid; values are the
-# same authority's RegionName in the UK HPI file. They mostly match but
-# must be kept explicit - applying Sefton's price index to Liverpool sales
-# would inject error rather than remove it.
+# The same authority is spelled three different ways across the three
+# datasets, so the mapping has to be explicit. St Helens is the one that
+# actually bites: "ST HELENS" in Price Paid, "St Helens" in the HPI file,
+# "St. Helens" (with a period) in EPC.
+#
+# Keys are the Price Paid district name, which is what we filter on.
 LOCAL_AUTHORITIES = {
-    "SEFTON": "Sefton",
-    "LIVERPOOL": "Liverpool",
-    "KNOWSLEY": "Knowsley",
-    "WIRRAL": "Wirral",
-    "ST HELENS": "St Helens",
-    "WEST LANCASHIRE": "West Lancashire",
+    "SEFTON":          {"hpi": "Sefton",          "epc": "Sefton"},
+    "LIVERPOOL":       {"hpi": "Liverpool",       "epc": "Liverpool"},
+    "KNOWSLEY":        {"hpi": "Knowsley",        "epc": "Knowsley"},
+    "WIRRAL":          {"hpi": "Wirral",          "epc": "Wirral"},
+    "ST HELENS":       {"hpi": "St Helens",       "epc": "St. Helens"},
+    "WEST LANCASHIRE": {"hpi": "West Lancashire", "epc": "West Lancashire"},
 }
 
-# Slug used for the per-authority EPC download filenames, e.g.
-# data/raw/epc/west_lancashire_certificates.csv
-def la_slug(district: str) -> str:
-    return district.lower().replace(" ", "_")
+HPI_NAMES = {d: v["hpi"] for d, v in LOCAL_AUTHORITIES.items()}
+EPC_LABEL_TO_DISTRICT = {v["epc"]: d for d, v in LOCAL_AUTHORITIES.items()}
 
-def epc_path(district: str):
-    return DATA_RAW / "epc" / f"{la_slug(district)}_certificates.csv"
-
-def available_authorities() -> list[str]:
-    """Whichever authorities actually have an EPC file downloaded.
-
-    Lets the pipeline run on whatever is present rather than failing on a
-    missing download - useful while the five extra EPC files are still
-    being fetched manually.
-    """
-    return [d for d in LOCAL_AUTHORITIES if epc_path(d).exists()]
+# One combined EPC export covering all six authorities (~730 MB), rather
+# than one file per authority - the download service lets you select
+# several councils in a single export.
+EPC_CSV = DATA_RAW / "epc" / "north_west_certificates.csv"
 
 # EPC certificates don't exist before 2008, so there is no point pulling
 # Price Paid data further back than that for the join.
