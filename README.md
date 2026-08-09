@@ -31,49 +31,83 @@ All free and open (OGL), no paid APIs:
 - **[postcodes.io](https://postcodes.io/)** — postcode → coordinates, no key needed.
 - **[Geofabrik OSM extract](https://download.geofabrik.de/europe/great-britain/england/merseyside.html)** — beaches, Marine Lake, for coastal distance.
 
-## Results so far
+## Results
 
-Measured on **held-out future sales** (train up to mid-2024, test after) —
-so these are honest out-of-sample numbers, not scores on data the model
-already saw.
+Six local authorities, **313,347 joined transactions**. Measured on
+**held-out future sales** (train to mid-2023, validate to mid-2024, test
+after) — honest out-of-sample numbers, not scores on data the model saw.
 
 | Model version | Test R² | MdAPE | PPE10 |
 |---|---|---|---|
-| v0: floor area only, no inflation adjustment | ≈ 0.00 | 33.6% | 10.0% |
-| v1: + inflation adjustment | 0.49 | 20.1% | 25.5% |
-| v2: + relative size (vs 15 nearest neighbours) | 0.56 | 18.0% | 28.4% |
-| v3: + house type + coastal distance | **0.67** | **15.1%** | **34.7%** |
+| v0: floor area only, no inflation adjustment | 0.03 | 35.0% | 11.9% |
+| v1: + inflation adjustment | 0.47 | 23.0% | 21.5% |
+| v2: + relative size (vs 15 nearest neighbours) | 0.54 | 21.0% | 23.8% |
+| v3: + house type + coastal distance (linear) | 0.65 | 16.8% | 31.4% |
+| v4b: LightGBM, extended features | 0.83 | 11.1% | 45.9% |
+| v4c: + monotonic floor area | 0.83 | 11.2% | 45.3% |
+| **v5: LightGBM tuned (Optuna)** | **0.84** | **10.6%** | **47.6%** |
 
 **MdAPE** = median absolute percentage error — typical error size. **PPE10** =
 share of predictions within 10% of the true price (the standard automated-
 valuation benchmark).
 
+**On Crosby specifically** (746 test properties), the tuned model reaches
+**9.1% MdAPE / 52.8% PPE10** — better than the six-authority average,
+since Crosby is a more homogeneous market than Liverpool or Knowsley.
+
+### How wide should the training area be?
+
+Tested directly: three models, tuned identically, all scored on the same
+746 Crosby properties.
+
+| Trained on | Test R² | MdAPE | PPE10 |
+|---|---|---|---|
+| All six authorities (226k sales) | 0.815 | **9.1%** | 52.8% |
+| Sefton only (44k sales) | **0.824** | 9.3% | **54.2%** |
+| Crosby only (5k sales) | 0.817 | 10.2% | 49.5% |
+
+Genuinely close between the two wider options — six authorities edge the
+median error, Sefton-only edges R² and PPE10. Crosby-only is clearly worst,
+so training on more than the target area does help. An earlier run
+suggested widening *hurt*, but that turned out to be undertraining: the
+untuned models were hitting their tree ceiling, and the effect disappeared
+once tuned.
+
 ### Findings worth noting
 
-- **The address join reached 95.3%** (vs ~93% in published work). Flats
-  matched worst at 75%, and post-2022 sales are weaker because the UBDC
-  lookup stops at Jan 2022, leaving the fuzzy matcher to carry those alone.
-- **Inflation adjustment mattered more than any feature.** Sefton's median
-  price rose 63% over the period; without correcting for that, the model
-  scored ≈0 on future sales despite looking fine on training data.
+- **The address join reached 95.3%** (vs ~93% in published work) and held
+  at exactly that when widened from one authority to six, with Route B
+  precision improving 96.1% → 97.4%. Flats match worst (75%), and
+  post-2022 sales are weaker because the UBDC lookup stops at Jan 2022.
+- **Inflation adjustment mattered more than any single feature.** Prices
+  rose ~63% over the period; uncorrected, the model scored ≈0 on future
+  sales despite looking fine in training. It must be applied *per
+  authority* — Liverpool's index is 113.7 against Knowsley's 107.4.
+- **Location dominates once the area widens.** Latitude, longitude and the
+  two coastal distances together account for ~55% of what the model uses;
+  floor area drops to 11%. The linear model couldn't exploit this, which is
+  most of why the tree model beats it.
 - **EPC energy ratings barely predict price** — but room counts and house
-  type predict it strongly. Detached homes sell for roughly £295k against
-  £95–125k for terraces.
+  type predict it strongly.
 - **`relative_size` helped, but not the way the hypothesis predicted.** It
-  was meant to rescue prediction on uniform-size streets; it actually helped
-  most on *varied* streets. Postcode district is probably too coarse a
-  neighbourhood definition to test the original claim properly.
+  was meant to rescue prediction on uniform-size streets; it helped most on
+  *varied* streets instead.
+- **Tuning bought less than the data and features did** — 11.1% → 10.6%,
+  with only 0.5pp spread across all 20 trials.
 
 ## Known limitations
 
-- Sefton only so far — not yet widened to neighbouring authorities.
-- No uncertainty estimate yet. The model gives a point prediction, not a
-  range, and has no "I can't call this one" refusal rule.
-- **14.7% of matched sales have no EPC at all**, so no floor area. These are
-  disproportionately long-held owner-occupied homes — the same properties
-  missing from both datasets.
-- Condition is unobserved. There's no free UK equivalent of a build-quality
-  grade, which is the single biggest missing predictor.
+- **No uncertainty estimate.** The model gives a point prediction, not a
+  range, and has no "I can't call this one" refusal rule. This is the
+  biggest gap before it could be trusted on a real purchase.
+- **13% of matched sales have no EPC**, so no floor area. Disproportionately
+  long-held owner-occupied homes — missing from both datasets at once.
+- **Condition is unobserved.** No free UK equivalent of a build-quality
+  grade exists; it's the single biggest missing predictor.
+- **No bathroom count** — a strong predictor in comparable work, absent from
+  every free UK source.
+- The tuned model still trains close to its tree ceiling, so it may not be
+  fully converged.
 
 ## Setup
 
