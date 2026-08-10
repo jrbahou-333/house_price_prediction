@@ -13,12 +13,20 @@ DATA_PROCESSED = PROJECT_ROOT / "data" / "processed"
 for _d in (DATA_RAW, DATA_INTERIM, DATA_PROCESSED):
     _d.mkdir(parents=True, exist_ok=True)
 
-# --- Local authorities in scope (Part 3 of the plan) ---
-# Sefton is the buying target; the rest give one contiguous North West
-# market. Measured, not assumed: training on all of Sefton beat training on
-# Crosby alone when both were scored on the same Crosby properties (MdAPE
-# 9.5% vs 10.0%), so wider training helps rather than dilutes - see the
-# scope experiment in notebooks/04_model.ipynb.
+# --- Local authorities in scope ---
+# Sefton is the buying target; the rest give one contiguous market.
+# Measured, not assumed: training on all of Sefton beat training on Crosby
+# alone when both were scored on the same Crosby properties (MdAPE 9.5% vs
+# 10.0%), so wider training helps rather than dilutes - see the scope
+# experiment in notebooks/04_model.ipynb.
+#
+# These five ARE the metropolitan county of Merseyside, which is deliberate:
+# our OSM extract is merseyside-latest.osm.pbf, so every distance feature is
+# computed against a map that exactly covers the data. West Lancashire was
+# dropped for this reason - it sits in Lancashire, so its 24,423 sales were
+# being measured against an incomplete map (its stations, parks and
+# motorways are outside the extract). Cost was 7.8% of rows, and the market
+# least like Crosby.
 #
 # The same authority is spelled three different ways across the three
 # datasets, so the mapping has to be explicit. St Helens is the one that
@@ -27,12 +35,11 @@ for _d in (DATA_RAW, DATA_INTERIM, DATA_PROCESSED):
 #
 # Keys are the Price Paid district name, which is what we filter on.
 LOCAL_AUTHORITIES = {
-    "SEFTON":          {"hpi": "Sefton",          "epc": "Sefton"},
-    "LIVERPOOL":       {"hpi": "Liverpool",       "epc": "Liverpool"},
-    "KNOWSLEY":        {"hpi": "Knowsley",        "epc": "Knowsley"},
-    "WIRRAL":          {"hpi": "Wirral",          "epc": "Wirral"},
-    "ST HELENS":       {"hpi": "St Helens",       "epc": "St. Helens"},
-    "WEST LANCASHIRE": {"hpi": "West Lancashire", "epc": "West Lancashire"},
+    "SEFTON":    {"hpi": "Sefton",    "epc": "Sefton"},
+    "LIVERPOOL": {"hpi": "Liverpool", "epc": "Liverpool"},
+    "KNOWSLEY":  {"hpi": "Knowsley",  "epc": "Knowsley"},
+    "WIRRAL":    {"hpi": "Wirral",    "epc": "Wirral"},
+    "ST HELENS": {"hpi": "St Helens", "epc": "St. Helens"},
 }
 
 HPI_NAMES = {d: v["hpi"] for d, v in LOCAL_AUTHORITIES.items()}

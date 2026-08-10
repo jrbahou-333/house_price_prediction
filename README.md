@@ -17,8 +17,19 @@ can pick up from there.
 | `00_setup_and_download.ipynb` | Downloads Price Paid, EPC, HPI, OSM data |
 | `01_preprocessing.ipynb` | Cleans Price Paid, cleans EPC, joins them by address |
 | `02_eda.ipynb` | Explores what actually correlates with price — informs the features below |
-| `03_features.ipynb` | Builds every model feature (inflation adjustment, geocoding, relative size, house type, coastal distance) |
+| `03_features.ipynb` | Builds every model feature (inflation adjustment, geocoding, relative size, dwelling type, sale history, renovation detection, local market level, amenity distances) |
 | `04_model.ipynb` | Fits and compares model versions on a temporal train/test split |
+
+Longer-running steps are scripts rather than notebook cells — they give
+progress output, survive interruption, and don't lose everything on a
+timeout (an early in-notebook tuning run hit a 4-hour limit and lost all of
+it):
+
+| Script | Does |
+|---|---|
+| `src/tune.py` | Optuna hyperparameter search, resumable via SQLite |
+| `src/ablation.py` | Group ablation — is each block of features actually earning its place? |
+| `src/calibrate.py` | Prediction intervals (conformalized quantile regression) and the confidence flag |
 
 ## Data sources
 
@@ -33,9 +44,10 @@ All free and open (OGL), no paid APIs:
 
 ## Results
 
-Six local authorities, **313,347 joined transactions**. Measured on
-**held-out future sales** (train to mid-2023, validate to mid-2024, test
-after) — honest out-of-sample numbers, not scores on data the model saw.
+Five local authorities (all of Merseyside), **287,946 joined transactions**.
+Measured on **held-out future sales** (train to mid-2023, validate to
+mid-2024, test after) — honest out-of-sample numbers, not scores on data the
+model saw.
 
 | Model version | Test R² | MdAPE | PPE10 |
 |---|---|---|---|
@@ -44,16 +56,54 @@ after) — honest out-of-sample numbers, not scores on data the model saw.
 | v2: + relative size (vs 15 nearest neighbours) | 0.54 | 21.0% | 23.8% |
 | v3: + house type + coastal distance (linear) | 0.65 | 16.8% | 31.4% |
 | v4b: LightGBM, extended features | 0.83 | 11.1% | 45.9% |
-| v4c: + monotonic floor area | 0.83 | 11.2% | 45.3% |
-| **v5: LightGBM tuned (Optuna)** | **0.84** | **10.6%** | **47.6%** |
+| v5: LightGBM tuned (Optuna) | 0.84 | 10.6% | 47.4% |
+| **v6: + condition, sale history, amenities** | **0.86** | **9.3%** | **52.9%** |
 
 **MdAPE** = median absolute percentage error — typical error size. **PPE10** =
 share of predictions within 10% of the true price (the standard automated-
 valuation benchmark).
 
-**On Crosby specifically** (746 test properties), the tuned model reaches
-**9.1% MdAPE / 52.8% PPE10** — better than the six-authority average,
-since Crosby is a more homogeneous market than Liverpool or Knowsley.
+**On Crosby specifically** (742 test properties): **8.0% MdAPE / 59.2%
+PPE10**, better than the Merseyside average since Crosby is more homogeneous
+than Liverpool or Knowsley. Narrowing further to a **£250–350k
+semi-detached house** — the most common purchase profile — gives **5.9%
+MdAPE / 68.2% PPE10**.
+
+### The confidence flag matters more than the average
+
+Error is highly concentrated: the best half of predictions average **4.3%**,
+the worst tenth **37.6%**, and that worst tenth carries **38% of all error**.
+A single accuracy figure hides which case you are in, so every prediction
+carries a calibrated interval and a flag.
+
+| Flag | Share of Crosby | MdAPE | PPE10 |
+|---|---|---|---|
+| 🟢 Green | 33.4% | **5.1%** | 73.8% |
+| 🟡 Amber | 56.7% | 8.6% | 55.8% |
+| 🔴 Red | 9.8% | 16.1% | 37.0% |
+
+Intervals come from **conformalized quantile regression** — plain conformal
+prediction gives every property the same width, which tells you nothing.
+Empirical coverage is **79.8% against an 80% target**, verified on unseen
+data.
+
+⚠️ Coverage is uneven at the extremes: 75.3% below £150k and 76.3% above
+£400k against 82.7% in the middle. The intervals are slightly too narrow at
+both ends.
+
+### What each feature group was worth
+
+Measured by ablation — fitting with and without, on the same held-out sales.
+Correlation is deliberately *not* used to decide this; it has been
+misleading three times in this project.
+
+| Group | Cost of removing it (Crosby MdAPE) |
+|---|---|
+| Sale history, renovation, flips | **+1.4pp** |
+| Dwelling type (house/flat/bungalow) | +0.7pp |
+| Local market, stations, parks, schools | +0.4pp |
+
+No group was dead weight. Baseline to v6 on Crosby: **9.9% → 8.0%**.
 
 ### How wide should the training area be?
 
@@ -65,6 +115,10 @@ Tested directly: three models, tuned identically, all scored on the same
 | All six authorities (226k sales) | 0.815 | **9.1%** | 52.8% |
 | Sefton only (44k sales) | **0.824** | 9.3% | **54.2%** |
 | Crosby only (5k sales) | 0.817 | 10.2% | 49.5% |
+
+(Measured before West Lancashire was dropped, so "six authorities" here is
+the then-current scope. The conclusion — train wider than the target area —
+is unchanged.)
 
 Genuinely close between the two wider options — six authorities edge the
 median error, Sefton-only edges R² and PPE10. Crosby-only is clearly worst,
@@ -94,12 +148,23 @@ once tuned.
   *varied* streets instead.
 - **Tuning bought less than the data and features did** — 11.1% → 10.6%,
   with only 0.5pp spread across all 20 trials.
+- **A leakage assertion caught three real bugs**, all of which would have
+  made the model look *better* than it is by feeding it a near-perfect
+  predictor derived from the answer: Land Registry recording one sale twice
+  under two IDs; the address matcher collapsing several flats in a building
+  onto one UPRN (so a neighbour's sale became "this property's" history);
+  and a dedupe that normalised postcodes one line *after* keying on them.
+  None would have raised an error. Sale history is now keyed on the address
+  rather than the UPRN.
+- **Bias correction did not work and was dropped.** An isotonic correction
+  fitted on held-out data made both tails *worse* (<£150k: +4.9% → +6.0%;
+  £400k+: −1.8% → −4.1%) — too few extreme-priced rows in the calibration
+  slice to fit the curve there, so it overfit the middle.
 
 ## Known limitations
 
-- **No uncertainty estimate.** The model gives a point prediction, not a
-  range, and has no "I can't call this one" refusal rule. This is the
-  biggest gap before it could be trusted on a real purchase.
+- **Cosmetic condition is still invisible.** The renovation features detect
+  extensions and efficiency upgrades, not kitchens, bathrooms or damp.
 - **13% of matched sales have no EPC**, so no floor area. Disproportionately
   long-held owner-occupied homes — missing from both datasets at once.
 - **Condition is unobserved.** No free UK equivalent of a build-quality
